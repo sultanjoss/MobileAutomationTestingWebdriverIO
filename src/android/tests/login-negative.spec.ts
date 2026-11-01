@@ -7,7 +7,7 @@ import { LoginPage } from '../pages/LoginPage';
 // ANDROID - NEGATIVE LOGIN TESTING
 // ======================================================
 
-describe('Android - SwagLabs Negative Login', () => {
+describe('@smoke @regression Android - SwagLabs Negative Login', () => {
 
     const loginPage = new LoginPage();
 

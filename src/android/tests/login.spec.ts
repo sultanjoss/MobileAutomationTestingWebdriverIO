@@ -8,7 +8,7 @@ import { ProductPage } from '../pages/ProductsPage';
 // ANDROID - SWAG LABS LOGIN TESTING
 // ======================================================
 
-describe('Android - Swag Labs Login Testing', () => {
+describe('@smoke Android - Swag Labs Login Testing', () => {
 
     const loginPage = new LoginPage();
     const productPage = new ProductPage();

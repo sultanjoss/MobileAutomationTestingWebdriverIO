@@ -8,7 +8,7 @@ import { negativeLoginData } from '../../../test-data/loginData';
 // ANDROID - DATA DRIVEN NEGATIVE LOGIN TESTING
 // ======================================================
 
-describe('Android - SwagLabs Login DDT', () => {
+describe('@smoke Android - SwagLabs Login DDT', () => {
 
     const loginPage = new LoginPage();
 

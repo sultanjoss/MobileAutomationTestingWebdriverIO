@@ -11,27 +11,43 @@ pipeline {
     environment {
         PATH = "/opt/homebrew/bin:/opt/homebrew/sbin:${env.PATH}"
 
+        // ==========================================
+        // APPIUM DEVICE FARM
+        // ==========================================
         APPIUM_HOST = '127.0.0.1'
         APPIUM_PORT = '4723'
 
+        // ==========================================
+        // ANDROID DEVICE
+        // ==========================================
         ANDROID_UDID = '146957054F004347'
         ANDROID_PACKAGE = 'com.swaglabsmobileapp'
 
-        RP_PLATFORM = 'Android'
-        RP_TESTING = 'Mocha'
+        // ==========================================
+        // IOS SIMULATOR
+        // ==========================================
+        IOS_UDID = '0339E1E4-3925-454F-8AAE-890563DAAE15'
+        IOS_BUNDLE_ID = 'com.saucelabs.SwagLabsMobileApp'
+
+        // ==========================================
+        // REPORTPORTAL
+        // ==========================================
         RP_ENDPOINT = 'http://127.0.0.1:8080/api/v1'
         RP_URL = 'http://127.0.0.1:8080'
         RP_PROJECT = 'mobile_automation_testing'
+        RP_TESTING = 'Mocha'
 
+        // ==========================================
+        // EVIDENCE
+        // ==========================================
         GLOBAL_EVIDENCE = 'true'
     }
 
     stages {
 
         // ==========================================
-        // STAGE 1 - CHECKOUT GITHUB
+        // STAGE 1 - CHECKOUT
         // ==========================================
-
         stage('Checkout Repository') {
             steps {
                 checkout scm
@@ -46,31 +62,35 @@ pipeline {
         // ==========================================
         // STAGE 2 - VALIDATE PARAMETERS
         // ==========================================
-
         stage('Validate Parameters') {
             steps {
                 script {
-                    if (params.PLATFORM != 'ANDROID') {
-                        error(
-                            'Build pertama hanya mendukung PLATFORM=ANDROID.'
-                        )
+                    if (!(params.PLATFORM in [
+                        'ANDROID',
+                        'IOS',
+                        'ALL'
+                    ])) {
+                        error('Invalid PLATFORM parameter.')
                     }
 
-                    if (params.TEST_SCOPE != 'SMOKE') {
-                        error(
-                            'Build pertama hanya mendukung TEST_SCOPE=SMOKE.'
-                        )
+                    if (!(params.TEST_SCOPE in [
+                        'SMOKE',
+                        'REGRESSION'
+                    ])) {
+                        error('Invalid TEST_SCOPE parameter.')
                     }
 
                     if (params.ENVIRONMENT != 'STAGING') {
-                        error(
-                            'Environment harus STAGING.'
-                        )
+                        error('Only STAGING is configured.')
                     }
 
+                    // Current WDIO configuration always imports
+                    // the ReportPortal reporter.
+                    // Do not silently ignore the checkbox.
                     if (!params.ENABLE_REPORTPORTAL) {
                         error(
-                            'Build pertama membutuhkan ENABLE_REPORTPORTAL=true.'
+                            'Disabling ReportPortal is not yet ' +
+                            'supported by the current WDIO configuration.'
                         )
                     }
                 }
@@ -78,14 +98,13 @@ pipeline {
                 echo "PLATFORM: ${params.PLATFORM}"
                 echo "TEST_SCOPE: ${params.TEST_SCOPE}"
                 echo "ENVIRONMENT: ${params.ENVIRONMENT}"
-                echo "REPORTPORTAL: ${params.ENABLE_REPORTPORTAL}"
+                echo "ENABLE_REPORTPORTAL: ${params.ENABLE_REPORTPORTAL}"
             }
         }
 
         // ==========================================
         // STAGE 3 - INSTALL DEPENDENCIES
         // ==========================================
-
         stage('Install Dependencies') {
             steps {
                 sh '''
@@ -95,42 +114,46 @@ pipeline {
                     echo "=== NPM VERSION ==="
                     npm --version
 
-                    echo "=== INSTALL PROJECT DEPENDENCIES ==="
+                    echo "=== INSTALL DEPENDENCIES ==="
                     npm ci
                 '''
             }
         }
 
         // ==========================================
-        // STAGE 4 - VALIDATE APPIUM DEVICE FARM
+        // STAGE 4 - VALIDATE APPIUM
         // ==========================================
-
         stage('Validate Appium Device Farm') {
             steps {
                 sh '''
-                    echo "=== CHECK APPIUM SERVER ==="
+                    echo "=== APPIUM DEVICE FARM ==="
 
                     curl --fail --silent --show-error \
                       --max-time 10 \
                       "http://${APPIUM_HOST}:${APPIUM_PORT}/status"
 
                     echo ""
-                    echo "Appium endpoint is reachable."
+                    echo "Appium Device Farm is reachable."
                 '''
             }
         }
 
         // ==========================================
-        // STAGE 5 - VALIDATE ANDROID DEVICE
+        // STAGE 5 - VALIDATE ANDROID
         // ==========================================
-
         stage('Validate Android Device') {
+            when {
+                expression {
+                    params.PLATFORM in ['ANDROID', 'ALL']
+                }
+            }
+
             steps {
                 sh '''
-                    echo "=== ANDROID DEVICES ==="
+                    echo "=== ANDROID DEVICE VALIDATION ==="
+
                     adb devices -l
 
-                    echo "=== VALIDATE DEVICE ==="
                     DEVICE_STATE=$(adb -s "$ANDROID_UDID" get-state)
 
                     if [ "$DEVICE_STATE" != "device" ]; then
@@ -138,22 +161,63 @@ pipeline {
                         exit 1
                     fi
 
-                    echo "=== VALIDATE INSTALLED APPLICATION ==="
-
                     adb -s "$ANDROID_UDID" \
                       shell pm path "$ANDROID_PACKAGE" \
                       | grep -q 'package:'
 
-                    echo "Android device and application are ready."
+                    echo "Android device and SwagLabs are ready."
                 '''
             }
         }
 
         // ==========================================
-        // STAGE 6 - EXECUTE ANDROID SMOKE TEST
+        // STAGE 6 - VALIDATE IOS
         // ==========================================
+        stage('Validate iOS Simulator') {
+            when {
+                expression {
+                    params.PLATFORM in ['IOS', 'ALL']
+                }
+            }
 
-        stage('Execute Android Smoke Test') {
+            steps {
+                sh '''
+                    echo "=== IOS SIMULATOR VALIDATION ==="
+
+                    xcrun simctl list devices booted
+
+                    SIMULATOR_STATE=$(
+                        xcrun simctl list devices booted |
+                        grep -F "$IOS_UDID" || true
+                    )
+
+                    if [ -z "$SIMULATOR_STATE" ]; then
+                        echo "Required iOS Simulator is not booted."
+                        exit 1
+                    fi
+
+                    echo "=== VALIDATE IOS APPLICATION ==="
+
+                    xcrun simctl get_app_container \
+                      "$IOS_UDID" \
+                      "$IOS_BUNDLE_ID" \
+                      app
+
+                    echo "iOS Simulator and SwagLabs are ready."
+                '''
+            }
+        }
+
+        // ==========================================
+        // STAGE 7 - EXECUTE ANDROID
+        // ==========================================
+        stage('Execute Android Tests') {
+            when {
+                expression {
+                    params.PLATFORM in ['ANDROID', 'ALL']
+                }
+            }
+
             steps {
                 withCredentials([
                     string(
@@ -162,14 +226,69 @@ pipeline {
                     )
                 ]) {
                     sh '''
-                        echo "=== ANDROID SMOKE TEST ==="
-                        echo "Platform: ${RP_PLATFORM}"
-                        echo "Testing: ${RP_TESTING}"
-                        echo "Scope: ${TEST_SCOPE}"
+                        set -eu
+
+                        export RP_PLATFORM=Android
+                        export RP_TESTING=Mocha
+                        export GLOBAL_EVIDENCE=true
+
+                        if [ "$TEST_SCOPE" = "SMOKE" ]; then
+                            TEST_TAG="@smoke"
+                        else
+                            TEST_TAG="@regression"
+                        fi
+
+                        echo "=== ANDROID AUTOMATION ==="
+                        echo "Platform: Android"
+                        echo "Scope: $TEST_SCOPE"
+                        echo "Filter: $TEST_TAG"
 
                         npx wdio run \
                           ./config/wdio.android.mocha.conf.ts \
-                          --mochaOpts.grep "@smoke"
+                          --mochaOpts.grep "$TEST_TAG"
+                    '''
+                }
+            }
+        }
+
+        // ==========================================
+        // STAGE 8 - EXECUTE IOS
+        // ==========================================
+        stage('Execute iOS Tests') {
+            when {
+                expression {
+                    params.PLATFORM in ['IOS', 'ALL']
+                }
+            }
+
+            steps {
+                withCredentials([
+                    string(
+                        credentialsId: 'reportportal-api-key',
+                        variable: 'RP_API_KEY'
+                    )
+                ]) {
+                    sh '''
+                        set -eu
+
+                        export RP_PLATFORM=iOS
+                        export RP_TESTING=Mocha
+                        export GLOBAL_EVIDENCE=true
+
+                        if [ "$TEST_SCOPE" = "SMOKE" ]; then
+                            TEST_TAG="@smoke"
+                        else
+                            TEST_TAG="@regression"
+                        fi
+
+                        echo "=== IOS AUTOMATION ==="
+                        echo "Platform: iOS"
+                        echo "Scope: $TEST_SCOPE"
+                        echo "Filter: $TEST_TAG"
+
+                        npx wdio run \
+                          ./config/wdio.ios.mocha.conf.ts \
+                          --mochaOpts.grep "$TEST_TAG"
                     '''
                 }
             }
@@ -179,15 +298,17 @@ pipeline {
     // ==============================================
     // POST EXECUTION
     // ==============================================
-
     post {
-
         success {
-            echo 'ANDROID SMOKE TEST - SUCCESS'
+            echo 'MOBILE AUTOMATION BUILD SUCCESS'
         }
 
         failure {
-            echo 'ANDROID SMOKE TEST - FAILED'
+            echo 'MOBILE AUTOMATION BUILD FAILED'
+        }
+
+        unstable {
+            echo 'MOBILE AUTOMATION BUILD UNSTABLE'
         }
 
         always {
@@ -197,7 +318,7 @@ pipeline {
                 fingerprint: false
             )
 
-            echo 'Mobile Automation Jenkins build completed.'
+            echo 'Mobile Automation pipeline completed.'
         }
     }
 }

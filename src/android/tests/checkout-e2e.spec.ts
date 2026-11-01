@@ -12,7 +12,7 @@ import { checkoutData } from '../data/checkoutData';
 // ANDROID - SWAGLABS CHECKOUT E2E
 // ======================================================
 
-describe('Android - SwagLabs Checkout E2E', () => {
+describe('@smoke @regression Android - SwagLabs Checkout E2E', () => {
 
     // ==================================================
     // PAGE OBJECT INITIALIZATION
