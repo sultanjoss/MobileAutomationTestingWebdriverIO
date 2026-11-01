@@ -19,6 +19,7 @@ pipeline {
 
         RP_PLATFORM = 'Android'
         RP_TESTING = 'Mocha'
+        RP_ENDPOINT = 'http://127.0.0.1:8080/api/v1'
         RP_URL = 'http://127.0.0.1:8080'
         RP_PROJECT = 'mobile_automation_testing'
 
