@@ -10,7 +10,7 @@ import { iosTestData } from '../data/iosTestData';
 // IOS - SWAGLABS CHECKOUT END-TO-END TEST
 // ======================================================
 
-describe('iOS - SwagLabs Checkout E2E', () => {
+describe('@regression iOS - SwagLabs Checkout E2E', () => {
 
     // ==============================================
     // PAGE OBJECT INITIALIZATION
