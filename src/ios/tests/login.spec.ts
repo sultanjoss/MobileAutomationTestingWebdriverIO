@@ -3,7 +3,7 @@ import { LoginPage } from '../pages/LoginPage';
 import { ProductsPage } from '../pages/ProductsPage';
 import { iosTestData } from '../data/iosTestData';
 
-describe('iOS - SwagLabs Login', () => {
+describe('@smoke @regression iOS - SwagLabs Login', () => {
 
     const loginPage = new LoginPage();
     const productsPage = new ProductsPage();
