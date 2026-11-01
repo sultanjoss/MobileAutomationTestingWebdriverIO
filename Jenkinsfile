@@ -11,121 +11,192 @@ pipeline {
     environment {
         PATH = "/opt/homebrew/bin:/opt/homebrew/sbin:${env.PATH}"
 
-        PROJECT_DIR = '/Users/i-3/Projects/MobileAutomationTesting'
         APPIUM_HOST = '127.0.0.1'
         APPIUM_PORT = '4723'
+
+        ANDROID_UDID = '146957054F004347'
+        ANDROID_PACKAGE = 'com.swaglabsmobileapp'
+
+        RP_PLATFORM = 'Android'
+        RP_TESTING = 'Mocha'
+        RP_URL = 'http://127.0.0.1:8080'
+        RP_PROJECT = 'mobile_automation_testing'
+
+        GLOBAL_EVIDENCE = 'true'
     }
 
     stages {
 
+        // ==========================================
+        // STAGE 1 - CHECKOUT GITHUB
+        // ==========================================
+
         stage('Checkout Repository') {
             steps {
                 checkout scm
+
+                sh '''
+                    echo "=== GIT REVISION ==="
+                    git log -1 --oneline
+                '''
             }
         }
+
+        // ==========================================
+        // STAGE 2 - VALIDATE PARAMETERS
+        // ==========================================
 
         stage('Validate Parameters') {
             steps {
                 script {
-                    if (!(params.PLATFORM in ['ANDROID', 'IOS', 'ALL'])) {
-                        error('Invalid PLATFORM parameter')
+                    if (params.PLATFORM != 'ANDROID') {
+                        error(
+                            'Build pertama hanya mendukung PLATFORM=ANDROID.'
+                        )
                     }
 
-                    if (!(params.TEST_SCOPE in ['SMOKE', 'REGRESSION'])) {
-                        error('Invalid TEST_SCOPE parameter')
+                    if (params.TEST_SCOPE != 'SMOKE') {
+                        error(
+                            'Build pertama hanya mendukung TEST_SCOPE=SMOKE.'
+                        )
+                    }
+
+                    if (params.ENVIRONMENT != 'STAGING') {
+                        error(
+                            'Environment harus STAGING.'
+                        )
+                    }
+
+                    if (!params.ENABLE_REPORTPORTAL) {
+                        error(
+                            'Build pertama membutuhkan ENABLE_REPORTPORTAL=true.'
+                        )
                     }
                 }
 
-                echo "Platform: ${params.PLATFORM}"
-                echo "Test Scope: ${params.TEST_SCOPE}"
-                echo "Environment: ${params.ENVIRONMENT}"
-                echo "ReportPortal: ${params.ENABLE_REPORTPORTAL}"
+                echo "PLATFORM: ${params.PLATFORM}"
+                echo "TEST_SCOPE: ${params.TEST_SCOPE}"
+                echo "ENVIRONMENT: ${params.ENVIRONMENT}"
+                echo "REPORTPORTAL: ${params.ENABLE_REPORTPORTAL}"
             }
         }
 
-        stage('Validate Tools') {
+        // ==========================================
+        // STAGE 3 - INSTALL DEPENDENCIES
+        // ==========================================
+
+        stage('Install Dependencies') {
             steps {
                 sh '''
-                    echo "=== NODE ==="
+                    echo "=== NODE VERSION ==="
                     node --version
 
-                    echo "=== NPM ==="
+                    echo "=== NPM VERSION ==="
                     npm --version
 
-                    echo "=== JAVA ==="
-                    java -version
-
-                    echo "=== ADB ==="
-                    adb version
-
-                    echo "=== XCODE ==="
-                    xcodebuild -version
+                    echo "=== INSTALL PROJECT DEPENDENCIES ==="
+                    npm ci
                 '''
             }
         }
+
+        // ==========================================
+        // STAGE 4 - VALIDATE APPIUM DEVICE FARM
+        // ==========================================
 
         stage('Validate Appium Device Farm') {
             steps {
                 sh '''
-                    echo "=== APPIUM STATUS ==="
+                    echo "=== CHECK APPIUM SERVER ==="
 
                     curl --fail --silent --show-error \
                       --max-time 10 \
-                      http://${APPIUM_HOST}:${APPIUM_PORT}/status
+                      "http://${APPIUM_HOST}:${APPIUM_PORT}/status"
 
                     echo ""
-                    echo "=== APPIUM CONNECTED ==="
+                    echo "Appium endpoint is reachable."
                 '''
             }
         }
 
-        stage('Validate Mobile Devices') {
+        // ==========================================
+        // STAGE 5 - VALIDATE ANDROID DEVICE
+        // ==========================================
+
+        stage('Validate Android Device') {
             steps {
                 sh '''
                     echo "=== ANDROID DEVICES ==="
                     adb devices -l
 
-                    echo "=== IOS SIMULATORS ==="
-                    xcrun simctl list devices booted
+                    echo "=== VALIDATE DEVICE ==="
+                    DEVICE_STATE=$(adb -s "$ANDROID_UDID" get-state)
+
+                    if [ "$DEVICE_STATE" != "device" ]; then
+                        echo "Android device is not ready."
+                        exit 1
+                    fi
+
+                    echo "=== VALIDATE INSTALLED APPLICATION ==="
+
+                    adb -s "$ANDROID_UDID" \
+                      shell pm path "$ANDROID_PACKAGE" \
+                      | grep -q 'package:'
+
+                    echo "Android device and application are ready."
                 '''
             }
         }
 
-        stage('Validate Test Project') {
+        // ==========================================
+        // STAGE 6 - EXECUTE ANDROID SMOKE TEST
+        // ==========================================
+
+        stage('Execute Android Smoke Test') {
             steps {
-                sh '''
-                    echo "=== SOURCE CODE ==="
-                    test -f package.json
-                    test -f config/wdio.android.mocha.conf.ts
-                    test -f config/wdio.ios.mocha.conf.ts
+                withCredentials([
+                    string(
+                        credentialsId: 'reportportal-api-key',
+                        variable: 'RP_API_KEY'
+                    )
+                ]) {
+                    sh '''
+                        echo "=== ANDROID SMOKE TEST ==="
+                        echo "Platform: ${RP_PLATFORM}"
+                        echo "Testing: ${RP_TESTING}"
+                        echo "Scope: ${TEST_SCOPE}"
 
-                    echo "=== LOCAL APPLICATION FILES ==="
-                    ls -lah "${PROJECT_DIR}/apps"
-
-                    echo "=== REPORTPORTAL CONFIG ==="
-                    if [ -f "${PROJECT_DIR}/.env" ]; then
-                        echo "Local .env exists"
-                    else
-                        echo "Local .env is missing"
-                    fi
-
-                    echo "=== VALIDATION COMPLETED ==="
-                '''
+                        npx wdio run \
+                          ./config/wdio.android.mocha.conf.ts \
+                          --mochaOpts.grep "@smoke"
+                    '''
+                }
             }
         }
     }
 
+    // ==============================================
+    // POST EXECUTION
+    // ==============================================
+
     post {
+
         success {
-            echo 'Mobile Automation environment validation PASSED'
+            echo 'ANDROID SMOKE TEST - SUCCESS'
         }
 
         failure {
-            echo 'Mobile Automation environment validation FAILED'
+            echo 'ANDROID SMOKE TEST - FAILED'
         }
 
         always {
-            echo 'Jenkins pipeline finished'
+            archiveArtifacts(
+                artifacts: 'reports/**/*',
+                allowEmptyArchive: true,
+                fingerprint: false
+            )
+
+            echo 'Mobile Automation Jenkins build completed.'
         }
     }
 }
