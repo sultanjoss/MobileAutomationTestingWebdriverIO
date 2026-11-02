@@ -16,10 +16,10 @@ describe('@smoke @regression Android - SwagLabs Negative Login', () => {
     // ==================================================
 
     it(
-        'TC-Login-002 - login username kosong dan password kosong',
+        'TC-Login-007 - login username kosong dan password kosong',
         async () => {
 
-            console.log('[TEST START] TC-Login-002');
+            console.log('[TEST START] TC-Login-007');
 
             // ------------------------------------------
             // STEP 1 - Verify Login Page
