@@ -100,7 +100,7 @@ export const config: MobileConfig = {
             // SESSION MANAGEMENT
             // ==========================================
 
-            'appium:noReset': true,
+            'appium:noReset': false,
 
             'appium:forceAppLaunch': true,
 

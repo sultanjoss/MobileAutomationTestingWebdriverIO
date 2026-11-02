@@ -11,7 +11,7 @@ export const iosTestData = {
     },
 
     customer: {
-        firstName: 'Josjis',
+        firstName: 'Fahmi',
         lastName: 'wadidaw',
         postalCode: '1999999'
     }
