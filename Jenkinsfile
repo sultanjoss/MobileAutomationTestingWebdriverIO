@@ -1,5 +1,10 @@
 
 pipeline {
+
+    // ==================================================
+    // JENKINS EXECUTION AGENT
+    // ==================================================
+
     agent any
 
     options {
@@ -8,46 +13,45 @@ pipeline {
         timestamps()
     }
 
+    // ==================================================
+    // ENVIRONMENT CONFIGURATION
+    // ==================================================
+
     environment {
         PATH = "/opt/homebrew/bin:/opt/homebrew/sbin:${env.PATH}"
 
-        // ==========================================
-        // APPIUM DEVICE FARM
-        // ==========================================
+        // Appium Device Farm
         APPIUM_HOST = '127.0.0.1'
         APPIUM_PORT = '4723'
 
-        // ==========================================
-        // ANDROID DEVICE
-        // ==========================================
+        // Android Real Device
         ANDROID_UDID = '146957054F004347'
         ANDROID_PACKAGE = 'com.swaglabsmobileapp'
 
-        // ==========================================
-        // IOS SIMULATOR
-        // ==========================================
+        // iOS Simulator
         IOS_UDID = '0339E1E4-3925-454F-8AAE-890563DAAE15'
         IOS_BUNDLE_ID = 'com.saucelabs.SwagLabsMobileApp'
 
-        // ==========================================
-        // REPORTPORTAL
-        // ==========================================
+        // ReportPortal
         RP_ENDPOINT = 'http://127.0.0.1:8080/api/v1'
         RP_URL = 'http://127.0.0.1:8080'
         RP_PROJECT = 'mobile_automation_testing'
         RP_TESTING = 'Mocha'
 
-        // ==========================================
-        // EVIDENCE
-        // ==========================================
+        // Evidence
         GLOBAL_EVIDENCE = 'true'
     }
 
+    // ==================================================
+    // PIPELINE STAGES
+    // ==================================================
+
     stages {
 
-        // ==========================================
-        // STAGE 1 - CHECKOUT
-        // ==========================================
+        // ==============================================
+        // STAGE 1 - CHECKOUT REPOSITORY
+        // ==============================================
+
         stage('Checkout Repository') {
             steps {
                 checkout scm
@@ -59,9 +63,10 @@ pipeline {
             }
         }
 
-        // ==========================================
+        // ==============================================
         // STAGE 2 - VALIDATE PARAMETERS
-        // ==========================================
+        // ==============================================
+
         stage('Validate Parameters') {
             steps {
                 script {
@@ -84,9 +89,8 @@ pipeline {
                         error('Only STAGING is configured.')
                     }
 
-                    // Current WDIO configuration always imports
-                    // the ReportPortal reporter.
-                    // Do not silently ignore the checkbox.
+                    // Reporter masih wajib aktif dalam
+                    // konfigurasi WebdriverIO saat ini.
                     if (!params.ENABLE_REPORTPORTAL) {
                         error(
                             'Disabling ReportPortal is not yet ' +
@@ -102,12 +106,15 @@ pipeline {
             }
         }
 
-        // ==========================================
+        // ==============================================
         // STAGE 3 - INSTALL DEPENDENCIES
-        // ==========================================
+        // ==============================================
+
         stage('Install Dependencies') {
             steps {
                 sh '''
+                    set -eu
+
                     echo "=== NODE VERSION ==="
                     node --version
 
@@ -120,17 +127,20 @@ pipeline {
             }
         }
 
-        // ==========================================
-        // STAGE 4 - VALIDATE APPIUM
-        // ==========================================
+        // ==============================================
+        // STAGE 4 - VALIDATE APPIUM DEVICE FARM
+        // ==============================================
+
         stage('Validate Appium Device Farm') {
             steps {
                 sh '''
+                    set -eu
+
                     echo "=== APPIUM DEVICE FARM ==="
 
                     curl --fail --silent --show-error \
-                      --max-time 10 \
-                      "http://${APPIUM_HOST}:${APPIUM_PORT}/status"
+                        --max-time 10 \
+                        "http://${APPIUM_HOST}:${APPIUM_PORT}/status"
 
                     echo ""
                     echo "Appium Device Farm is reachable."
@@ -138,10 +148,12 @@ pipeline {
             }
         }
 
-        // ==========================================
-        // STAGE 5 - VALIDATE ANDROID
-        // ==========================================
-        stage('Validate Android Device') {
+        // ==============================================
+        // STAGE 5 - ANDROID REGRESSION
+        // RESOURCE: android-itel-a6610l
+        // ==============================================
+
+        stage('Android Automation') {
             when {
                 expression {
                     params.PLATFORM in ['ANDROID', 'ALL']
@@ -149,31 +161,78 @@ pipeline {
             }
 
             steps {
-                sh '''
-                    echo "=== ANDROID DEVICE VALIDATION ==="
+                lock(resource: 'android-itel-a6610l') {
 
-                    adb devices -l
+                    // ----------------------------------
+                    // VALIDATE ANDROID DEVICE
+                    // ----------------------------------
 
-                    DEVICE_STATE=$(adb -s "$ANDROID_UDID" get-state)
+                    sh '''
+                        set -eu
 
-                    if [ "$DEVICE_STATE" != "device" ]; then
-                        echo "Android device is not ready."
-                        exit 1
-                    fi
+                        echo "=== ANDROID DEVICE VALIDATION ==="
 
-                    adb -s "$ANDROID_UDID" \
-                      shell pm path "$ANDROID_PACKAGE" \
-                      | grep -q 'package:'
+                        adb devices -l
 
-                    echo "Android device and SwagLabs are ready."
-                '''
+                        DEVICE_STATE=$(
+                            adb -s "$ANDROID_UDID" get-state
+                        )
+
+                        if [ "$DEVICE_STATE" != "device" ]; then
+                            echo "Android device is not ready."
+                            exit 1
+                        fi
+
+                        adb -s "$ANDROID_UDID" \
+                            shell pm path "$ANDROID_PACKAGE" \
+                            | grep -q 'package:'
+
+                        echo "Android device and SwagLabs are ready."
+                    '''
+
+                    // ----------------------------------
+                    // EXECUTE ANDROID TESTS
+                    // ----------------------------------
+
+                    withCredentials([
+                        string(
+                            credentialsId: 'reportportal-api-key',
+                            variable: 'RP_API_KEY'
+                        )
+                    ]) {
+                        sh '''
+                            set -eu
+
+                            export RP_PLATFORM=Android
+                            export RP_TESTING=Mocha
+                            export GLOBAL_EVIDENCE=true
+
+                            if [ "$TEST_SCOPE" = "SMOKE" ]; then
+                                TEST_TAG="@smoke"
+                            else
+                                TEST_TAG="@regression"
+                            fi
+
+                            echo "=== ANDROID AUTOMATION ==="
+                            echo "Platform: Android"
+                            echo "Scope: $TEST_SCOPE"
+                            echo "Filter: $TEST_TAG"
+
+                            npx wdio run \
+                                ./config/wdio.android.mocha.conf.ts \
+                                --mochaOpts.grep "$TEST_TAG"
+                        '''
+                    }
+                }
             }
         }
 
-        // ==========================================
-        // STAGE 6 - VALIDATE IOS
-        // ==========================================
-        stage('Validate iOS Simulator') {
+        // ==============================================
+        // STAGE 6 - IOS REGRESSION
+        // RESOURCE: ios-iphone-16e
+        // ==============================================
+
+        stage('iOS Automation') {
             when {
                 expression {
                     params.PLATFORM in ['IOS', 'ALL']
@@ -181,124 +240,83 @@ pipeline {
             }
 
             steps {
-                sh '''
-                    echo "=== IOS SIMULATOR VALIDATION ==="
+                lock(resource: 'ios-iphone-16e') {
 
-                    xcrun simctl list devices booted
+                    // ----------------------------------
+                    // VALIDATE IOS SIMULATOR
+                    // ----------------------------------
 
-                    SIMULATOR_STATE=$(
-                        xcrun simctl list devices booted |
-                        grep -F "$IOS_UDID" || true
-                    )
-
-                    if [ -z "$SIMULATOR_STATE" ]; then
-                        echo "Required iOS Simulator is not booted."
-                        exit 1
-                    fi
-
-                    echo "=== VALIDATE IOS APPLICATION ==="
-
-                    xcrun simctl get_app_container \
-                      "$IOS_UDID" \
-                      "$IOS_BUNDLE_ID" \
-                      app
-
-                    echo "iOS Simulator and SwagLabs are ready."
-                '''
-            }
-        }
-
-        // ==========================================
-        // STAGE 7 - EXECUTE ANDROID
-        // ==========================================
-        stage('Execute Android Tests') {
-            when {
-                expression {
-                    params.PLATFORM in ['ANDROID', 'ALL']
-                }
-            }
-
-            steps {
-                withCredentials([
-                    string(
-                        credentialsId: 'reportportal-api-key',
-                        variable: 'RP_API_KEY'
-                    )
-                ]) {
                     sh '''
                         set -eu
 
-                        export RP_PLATFORM=Android
-                        export RP_TESTING=Mocha
-                        export GLOBAL_EVIDENCE=true
+                        echo "=== IOS SIMULATOR VALIDATION ==="
 
-                        if [ "$TEST_SCOPE" = "SMOKE" ]; then
-                            TEST_TAG="@smoke"
-                        else
-                            TEST_TAG="@regression"
+                        xcrun simctl list devices booted
+
+                        SIMULATOR_STATE=$(
+                            xcrun simctl list devices booted |
+                            grep -F "$IOS_UDID" || true
+                        )
+
+                        if [ -z "$SIMULATOR_STATE" ]; then
+                            echo "Required iOS Simulator is not booted."
+                            exit 1
                         fi
 
-                        echo "=== ANDROID AUTOMATION ==="
-                        echo "Platform: Android"
-                        echo "Scope: $TEST_SCOPE"
-                        echo "Filter: $TEST_TAG"
+                        echo "=== VALIDATE IOS APPLICATION ==="
 
-                        npx wdio run \
-                          ./config/wdio.android.mocha.conf.ts \
-                          --mochaOpts.grep "$TEST_TAG"
+                        xcrun simctl get_app_container \
+                            "$IOS_UDID" \
+                            "$IOS_BUNDLE_ID" \
+                            app
+
+                        echo "iOS Simulator and SwagLabs are ready."
                     '''
-                }
-            }
-        }
 
-        // ==========================================
-        // STAGE 8 - EXECUTE IOS
-        // ==========================================
-        stage('Execute iOS Tests') {
-            when {
-                expression {
-                    params.PLATFORM in ['IOS', 'ALL']
-                }
-            }
+                    // ----------------------------------
+                    // EXECUTE IOS TESTS
+                    // ----------------------------------
 
-            steps {
-                withCredentials([
-                    string(
-                        credentialsId: 'reportportal-api-key',
-                        variable: 'RP_API_KEY'
-                    )
-                ]) {
-                    sh '''
-                        set -eu
+                    withCredentials([
+                        string(
+                            credentialsId: 'reportportal-api-key',
+                            variable: 'RP_API_KEY'
+                        )
+                    ]) {
+                        sh '''
+                            set -eu
 
-                        export RP_PLATFORM=iOS
-                        export RP_TESTING=Mocha
-                        export GLOBAL_EVIDENCE=true
+                            export RP_PLATFORM=iOS
+                            export RP_TESTING=Mocha
+                            export GLOBAL_EVIDENCE=true
 
-                        if [ "$TEST_SCOPE" = "SMOKE" ]; then
-                            TEST_TAG="@smoke"
-                        else
-                            TEST_TAG="@regression"
-                        fi
+                            if [ "$TEST_SCOPE" = "SMOKE" ]; then
+                                TEST_TAG="@smoke"
+                            else
+                                TEST_TAG="@regression"
+                            fi
 
-                        echo "=== IOS AUTOMATION ==="
-                        echo "Platform: iOS"
-                        echo "Scope: $TEST_SCOPE"
-                        echo "Filter: $TEST_TAG"
+                            echo "=== IOS AUTOMATION ==="
+                            echo "Platform: iOS"
+                            echo "Scope: $TEST_SCOPE"
+                            echo "Filter: $TEST_TAG"
 
-                        npx wdio run \
-                          ./config/wdio.ios.mocha.conf.ts \
-                          --mochaOpts.grep "$TEST_TAG"
-                    '''
+                            npx wdio run \
+                                ./config/wdio.ios.mocha.conf.ts \
+                                --mochaOpts.grep "$TEST_TAG"
+                        '''
+                    }
                 }
             }
         }
     }
 
-    // ==============================================
+    // ==================================================
     // POST EXECUTION
-    // ==============================================
+    // ==================================================
+
     post {
+
         success {
             echo 'MOBILE AUTOMATION BUILD SUCCESS'
         }
