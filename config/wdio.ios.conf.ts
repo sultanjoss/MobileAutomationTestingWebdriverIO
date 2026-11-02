@@ -117,6 +117,7 @@ export const config: MobileConfig = {
             'appium:useNewWDA': false,
 
             'appium:wdaLaunchTimeout': 120000,
+            'appium:maxTypingFrequency': 30,
 
             'appium:wdaConnectionTimeout': 120000
         }

@@ -27,7 +27,7 @@ export const IOSLocators = {
     // ==============================================
     products: {
         title:
-            '-ios class chain:**/XCUIElementTypeStaticText[`name == "PRODUCTS"`]',
+            '//XCUIElementTypeStaticText[@name="PRODUCTS"]',
 
         backpackName:
             '-ios predicate string:name == "Sauce Labs Backpack"',
